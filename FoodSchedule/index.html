@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoodExpiry - Gestione Scadenze Alimentari</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #4caf50;
+            --secondary-color: #ff9800;
+            --warning-color: #f44336;
+        }
+        
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            color: var(--primary-color) !important;
+        }
+        
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: none;
+        }
+        
+        .card-header {
+            background-color: white;
+            border-bottom: 2px solid #f1f1f1;
+            font-weight: 600;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: #388e3c;
+            border-color: #388e3c;
+        }
+        
+        .btn-warning {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        
+        .expiring-soon {
+            background-color: #fff3cd;
+        }
+        
+        .expired {
+            background-color: #f8d7da;
+        }
+        
+        .badge-expiring {
+            background-color: var(--secondary-color);
+        }
+        
+        .badge-expired {
+            background-color: var(--warning-color);
+        }
+        
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .dashboard-section {
+            display: none;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        
+        .sortable:hover {
+            cursor: pointer;
+            background-color: #f5f5f5;
+        }
+        
+        .food-image {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 5px;
+        }
+        
+        .category-filter {
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .error-message {
+            color: red;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background-color: var(--warning-color);
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .debug-info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #0d6efd;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Spinner -->
+    <div id="loading" class="d-none">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Caricamento...</span>
+        </div>
+    </div>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-carrot me-2"></i>FoodExpiry
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active dashboard-link" href="#" data-section="dashboard">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-section="add-food">Aggiungi Alimento</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-section="settings">Impostazioni</a>
+                    </li>
+                </ul>
+                <div class="d-flex">
+                    <span class="navbar-text me-3" id="userEmail"></span>
+                    <button class="btn btn-outline-secondary btn-sm" id="logoutBtn">Logout</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Login Section -->
+        <div id="login-section" class="dashboard-section">
+            <div class="login-container">
+                <h2 class="text-center mb-4">Accedi a FoodExpiry</h2>
+                <div id="authError" class="alert alert-danger d-none" role="alert"></div>
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 mb-3">Accedi</button>
+                    <div class="text-center">
+                        <a href="#" id="showRegister">Non hai un account? Registrati</a>
+                    </div>
+                </form>
+
+                <form id="registerForm" class="d-none">
+                    <div class="mb-3">
+                        <label for="registerName" class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="registerName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="registerEmail" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="registerEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="registerPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="registerPassword" required>
+                        <div class="form-text">La password deve essere di almeno 6 caratteri</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="registerPasswordConfirm" class="form-label">Conferma Password</label>
+                        <input type="password" class="form-control" id="registerPasswordConfirm" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 mb-3">Registrati</button>
+                    <div class="text-center">
+                        <a href="#" id="showLogin">Hai già un account? Accedi</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="dashboard-section">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>I tuoi alimenti</span>
+                            <div>
+                                <input type="text" id="searchFood" class="form-control form-control-sm" placeholder="Cerca...">
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3 d-flex flex-wrap">
+                                <button class="btn btn-sm btn-outline-primary category-filter active" data-category="all">Tutti</button>
+                                <!-- Categories will be dynamically added here -->
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th class="sortable" data-sort="name">Nome <i class="fas fa-sort"></i></th>
+                                            <th class="sortable" data-sort="category">Categoria <i class="fas fa-sort"></i></th>
+                                            <th class="sortable" data-sort="expiryDate">Scadenza <i class="fas fa-sort"></i></th>
+                                            <th>Stato</th>
+                                            <th>Azioni</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="foodTableBody">
+                                        <!-- Food items will be dynamically added here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Food Section -->
+        <div id="add-food-section" class="dashboard-section">
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">Aggiungi Nuovo Alimento</div>
+                        <div class="card-body">
+                            <form id="addFoodForm">
+                                <div class="mb-3">
+                                    <label for="foodName" class="form-label">Nome Alimento</label>
+                                    <input type="text" class="form-control" id="foodName" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="foodCategory" class="form-label">Categoria</label>
+                                    <select class="form-select" id="foodCategory" required>
+                                        <option value="">Seleziona categoria</option>
+                                        <option value="Latticini">Latticini</option>
+                                        <option value="Carne">Carne</option>
+                                        <option value="Pesce">Pesce</option>
+                                        <option value="Verdura">Verdura</option>
+                                        <option value="Frutta">Frutta</option>
+                                        <option value="Conserva">Conserva</option>
+                                        <option value="Surgelato">Surgelato</option>
+                                        <option value="Pane">Pane</option>
+                                        <option value="Bevanda">Bevanda</option>
+                                        <option value="Altro">Altro</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="foodExpiry" class="form-label">Data di Scadenza</label>
+                                    <input type="date" class="form-control" id="foodExpiry" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="foodNotes" class="form-label">Note (opzionale)</label>
+                                    <textarea class="form-control" id="foodNotes" rows="2"></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Aggiungi Alimento</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Section -->
+        <div id="settings-section" class="dashboard-section">
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">Impostazioni Notifiche</div>
+                        <div class="card-body">
+                            <form id="settingsForm">
+                                <div class="mb-3">
+                                    <label for="notificationDays" class="form-label">Giorni di preavviso per le notifiche</label>
+                                    <input type="number" class="form-control" id="notificationDays" min="1" max="30" value="5" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Tipo di notifica</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="emailNotifications" checked>
+                                        <label class="form-check-label" for="emailNotifications">Email</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="pushNotifications">
+                                        <label class="form-check-label" for="pushNotifications">Notifiche push (da implementare)</label>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Salva Impostazioni</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Food Modal -->
+    <div class="modal fade" id="editFoodModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Modifica Alimento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editFoodForm">
+                        <input type="hidden" id="editFoodId">
+                        <div class="mb-3">
+                            <label for="editFoodName" class="form-label">Nome Alimento</label>
+                            <input type="text" class="form-control" id="editFoodName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editFoodCategory" class="form-label">Categoria</label>
+                            <select class="form-select" id="editFoodCategory" required>
+                                <option value="Latticini">Latticini</option>
+                                <option value="Carne">Carne</option>
+                                <option value="Pesce">Pesce</option>
+                                <option value="Verdura">Verdura</option>
+                                <option value="Frutta">Frutta</option>
+                                <option value="Conserva">Conserva</option>
+                                <option value="Surgelato">Surgelato</option>
+                                <option value="Pane">Pane</option>
+                                <option value="Bevanda">Bevanda</option>
+                                <option value="Altro">Altro</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editFoodExpiry" class="form-label">Data di Scadenza</label>
+                            <input type="date" class="form-control" id="editFoodExpiry" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editFoodNotes" class="form-label">Note (opzionale)</label>
+                            <textarea class="form-control" id="editFoodNotes" rows="2"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                    <button type="button" class="btn btn-primary" id="saveEditFood">Salva Modifiche</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap & jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCiIx0kKKPoAmXx_2xj2tX3dyazn_Lwowc",
+            authDomain: "foodschedule-3f852.firebaseapp.com",
+            projectId: "foodschedule-3f852",
+            storageBucket: "foodschedule-3f852.firebasestorage.app",
+            messagingSenderId: "279345061877",
+            appId: "1:279345061877:web:386afec0cea5d984634abc",
+            measurementId: "G-3M8YRDCQM7"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        // Variabili globali
+        let currentUser = null;
+        let userSettings = { notificationDays: 5, emailNotifications: true };
+        let foods = [];
+        let currentSort = { field: 'expiryDate', direction: 'asc' };
+
+        $(document).ready(function() {
+            // Gestione autenticazione
+            auth.onAuthStateChanged(user => {
+                if (user) {
+                    currentUser = user;
+                    $('#userEmail').text(user.email);
+                    showSection('dashboard');
+                    loadUserData();
+                    loadFoods();
+                } else {
+                    showSection('login');
+                }
+                $('#loading').addClass('d-none');
+            });
+
+            // Login
+            $('#loginForm').on('submit', function(e) {
+                e.preventDefault();
+                $('#loading').removeClass('d-none');
+                $('#authError').addClass('d-none');
+                
+                const email = $('#email').val();
+                const password = $('#password').val();
+                
+                auth.signInWithEmailAndPassword(email, password)
+                    .catch(error => {
+                        $('#loading').addClass('d-none');
+                        showAuthError(error);
+                    });
+            });
+
+            // Registrazione
+            $('#registerForm').on('submit', function(e) {
+                e.preventDefault();
+                $('#authError').addClass('d-none');
+                
+                const name = $('#registerName').val();
+                const email = $('#registerEmail').val();
+                const password = $('#registerPassword').val();
+                const confirmPassword = $('#registerPasswordConfirm').val();
+                
+                if (password !== confirmPassword) {
+                    showAuthError({message: 'Le password non coincidono'});
+                    return;
+                }
+                
+                if (password.length < 6) {
+                    showAuthError({message: 'La password deve essere di almeno 6 caratteri'});
+                    return;
+                }
+                
+                $('#loading').removeClass('d-none');
+                
+                auth.createUserWithEmailAndPassword(email, password)
+                    .then(userCredential => {
+                        // Salva nome utente e impostazioni predefinite
+                        return db.collection('users').doc(userCredential.user.uid).set({
+                            name: name,
+                            email: email,
+                            settings: {
+                                notificationDays: 5,
+                                emailNotifications: true,
+                                pushNotifications: false
+                            },
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    })
+                    .then(() => {
+                        $('#loading').addClass('d-none');
+                    })
+                    .catch(error => {
+                        $('#loading').addClass('d-none');
+                        showAuthError(error);
+                    });
+            });
+
+            // Funzione per mostrare errori di autenticazione
+            function showAuthError(error) {
+                let errorMessage = 'Errore di autenticazione';
+                
+                if (error.code) {
+                    switch(error.code) {
+                        case 'auth/configuration-not-found':
+                            errorMessage = 'Configurazione Firebase non corretta. Controlla la configurazione.';
+                            break;
+                        case 'auth/email-already-in-use':
+                            errorMessage = 'Email già in uso. Prova ad accedere invece di registrarti.';
+                            break;
+                        case 'auth/invalid-email':
+                            errorMessage = 'Email non valida.';
+                            break;
+                        case 'auth/weak-password':
+                            errorMessage = 'Password troppo debole. Usa almeno 6 caratteri.';
+                            break;
+                        case 'auth/user-not-found':
+                            errorMessage = 'Utente non trovato. Verifica l\'email o registrati.';
+                            break;
+                        case 'auth/wrong-password':
+                            errorMessage = 'Password errata.';
+                            break;
+                        default:
+                            errorMessage = error.message;
+                    }
+                } else {
+                    errorMessage = error.message;
+                }
+                
+                $('#authError').text(errorMessage).removeClass('d-none');
+            }
+
+            // Toggle tra login e registrazione
+            $('#showRegister').on('click', function(e) {
+                e.preventDefault();
+                $('#loginForm').addClass('d-none');
+                $('#registerForm').removeClass('d-none');
+                $('#authError').addClass('d-none');
+            });
+
+            $('#showLogin').on('click', function(e) {
+                e.preventDefault();
+                $('#registerForm').addClass('d-none');
+                $('#loginForm').removeClass('d-none');
+                $('#authError').addClass('d-none');
+            });
+
+            // Logout
+            $('#logoutBtn').on('click', function() {
+                auth.signOut();
+            });
+
+            // Navigazione
+            $('.nav-link').on('click', function(e) {
+                e.preventDefault();
+                const section = $(this).data('section');
+                showSection(section);
+            });
+
+            // Aggiungi alimento - CODICE CORRETTO
+            $('#addFoodForm').on('submit', function(e) {
+                e.preventDefault();
+                
+                // Assicurati che l'utente sia autenticato
+                if (!currentUser) {
+                    alert('Devi essere loggato per aggiungere alimenti.');
+                    return;
+                }
+                
+                const food = {
+                    name: $('#foodName').val(),
+                    category: $('#foodCategory').val(),
+                    expiryDate: $('#foodExpiry').val(),
+                    notes: $('#foodNotes').val(),
+                    userId: currentUser.uid, // Questo campo è CRUCIALE per le regole di sicurezza
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                
+                // Verifica che tutti i campi obbligatori siano presenti
+                if (!food.name || !food.category || !food.expiryDate) {
+                    alert('Per favore, compila tutti i campi obbligatori.');
+                    return;
+                }
+                
+                console.log("Tentativo di aggiungere alimento:", food);
+                
+                db.collection('foods').add(food)
+                    .then((docRef) => {
+                        console.log("Alimento aggiunto con ID:", docRef.id);
+                        alert('Alimento aggiunto con successo!');
+                        $('#addFoodForm')[0].reset();
+                        loadFoods();
+                        showSection('dashboard');
+                    })
+                    .catch(error => {
+                        console.error('Errore dettagliato:', error);
+                        alert('Errore durante il salvataggio: ' + error.message);
+                        
+                        // Mostra informazioni di debug
+                        if (error.code === 'permission-denied') {
+                            alert('ERRORE PERMESSI: Verifica le regole di sicurezza di Firestore. Assicurati di avere il campo "userId" nel documento e che corrisponda all\'UID dell\'utente autenticato.');
+                        }
+                    });
+            });
+
+            // Salva impostazioni
+            $('#settingsForm').on('submit', function(e) {
+                e.preventDefault();
+                
+                userSettings.notificationDays = parseInt($('#notificationDays').val());
+                userSettings.emailNotifications = $('#emailNotifications').is(':checked');
+                userSettings.pushNotifications = $('#pushNotifications').is(':checked');
+                
+                // Verifica che l'utente sia autenticato
+                if (!currentUser) {
+                    alert('Devi essere loggato per salvare le impostazioni.');
+                    return;
+                }
+                
+                db.collection('users').doc(currentUser.uid).update({
+                    settings: userSettings
+                })
+                .then(() => {
+                    alert('Impostazioni salvate con successo!');
+                })
+                .catch(error => {
+                    console.error('Errore dettagliato:', error);
+                    alert('Errore durante il salvataggio: ' + error.message);
+                });
+            });
+
+            // Ricerca
+            $('#searchFood').on('keyup', function() {
+                filterFoods();
+            });
+
+            // Ordinamento tabella
+            $('.sortable').on('click', function() {
+                const field = $(this).data('sort');
+                
+                if (currentSort.field === field) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.field = field;
+                    currentSort.direction = 'asc';
+                }
+                
+                sortFoods();
+                renderFoods();
+            });
+
+            // Filtri categoria
+            $(document).on('click', '.category-filter', function() {
+                $('.category-filter').removeClass('active');
+                $(this).addClass('active');
+                filterFoods();
+            });
+
+            // Modifica alimento
+            $(document).on('click', '.edit-food', function() {
+                const foodId = $(this).data('id');
+                const food = foods.find(f => f.id === foodId);
+                
+                if (food) {
+                    $('#editFoodId').val(foodId);
+                    $('#editFoodName').val(food.name);
+                    $('#editFoodCategory').val(food.category);
+                    $('#editFoodExpiry').val(food.expiryDate);
+                    $('#editFoodNotes').val(food.notes || '');
+                    
+                    $('#editFoodModal').modal('show');
+                }
+            });
+
+            // Salva modifica alimento
+            $('#saveEditFood').on('click', function() {
+                const foodId = $('#editFoodId').val();
+                const updatedFood = {
+                    name: $('#editFoodName').val(),
+                    category: $('#editFoodCategory').val(),
+                    expiryDate: $('#editFoodExpiry').val(),
+                    notes: $('#editFoodNotes').val(),
+                    // Mantieni il campo userId per le regole di sicurezza
+                    userId: currentUser.uid
+                };
+                
+                // Verifica che tutti i campi obbligatori siano presenti
+                if (!updatedFood.name || !updatedFood.category || !updatedFood.expiryDate) {
+                    alert('Per favore, compila tutti i campi obbligatori.');
+                    return;
+                }
+                
+                db.collection('foods').doc(foodId).update(updatedFood)
+                    .then(() => {
+                        $('#editFoodModal').modal('hide');
+                        loadFoods();
+                    })
+                    .catch(error => {
+                        console.error('Errore dettagliato:', error);
+                        alert('Errore durante l\'aggiornamento: ' + error.message);
+                    });
+            });
+
+            // Elimina alimento
+            $(document).on('click', '.delete-food', function() {
+                if (!confirm('Sei sicuro di voler eliminare questo alimento?')) return;
+                
+                const foodId = $(this).data('id');
+                
+                db.collection('foods').doc(foodId).delete()
+                    .then(() => {
+                        loadFoods();
+                    })
+                    .catch(error => {
+                        console.error('Errore dettagliato:', error);
+                        alert('Errore durante l\'eliminazione: ' + error.message);
+                    });
+            });
+        });
+
+        // Funzioni di utilità
+        function showSection(section) {
+            $('.dashboard-section').hide();
+            $(`#${section}-section`).show();
+            $('.nav-link').removeClass('active');
+            $(`.nav-link[data-section="${section}"]`).addClass('active');
+        }
+
+        function loadUserData() {
+            if (!currentUser) return;
+            
+            db.collection('users').doc(currentUser.uid).get()
+                .then(doc => {
+                    if (doc.exists) {
+                        const userData = doc.data();
+                        if (userData.settings) {
+                            userSettings = userData.settings;
+                            $('#notificationDays').val(userSettings.notificationDays);
+                            $('#emailNotifications').prop('checked', userSettings.emailNotifications);
+                            $('#pushNotifications').prop('checked', userSettings.pushNotifications);
+                        }
+                    } else {
+                        // Se il documento utente non esiste, crealo
+                        db.collection('users').doc(currentUser.uid).set({
+                            name: currentUser.displayName || currentUser.email.split('@')[0],
+                            email: currentUser.email,
+                            settings: userSettings,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+                    }
+                })
+                .catch(error => {
+                    console.error('Errore nel caricamento dati utente:', error);
+                });
+        }
+
+        function loadFoods() {
+            if (!currentUser) return;
+            
+            $('#loading').removeClass('d-none');
+            
+            // Carica gli alimenti senza ordinamento per evitare l'errore di indice
+            db.collection('foods')
+                .where('userId', '==', currentUser.uid)
+                .get()
+                .then(querySnapshot => {
+                    foods = [];
+                    querySnapshot.forEach(doc => {
+                        const food = doc.data();
+                        food.id = doc.id;
+                        foods.push(food);
+                    });
+                    
+                    // Ordina localmente i risultati
+                    sortFoods();
+                    
+                    // Estrai categorie uniche
+                    const categories = [...new Set(foods.map(food => food.category))];
+                    renderCategoryFilters(categories);
+                    
+                    renderFoods();
+                    $('#loading').addClass('d-none');
+                })
+                .catch(error => {
+                    $('#loading').addClass('d-none');
+                    console.error('Errore nel caricamento degli alimenti:', error);
+                    alert('Errore nel caricamento degli alimenti: ' + error.message);
+                });
+        }
+
+        function renderCategoryFilters(categories) {
+            const filtersContainer = $('.category-filter').parent();
+            // Rimuovi tutti i filtri tranne "Tutti"
+            $('.category-filter:not([data-category="all"])').remove();
+            
+            // Aggiungi i filtri per ogni categoria
+            categories.forEach(category => {
+                filtersContainer.append(`
+                    <button class="btn btn-sm btn-outline-primary category-filter" data-category="${category}">${category}</button>
+                `);
+            });
+        }
+
+        function sortFoods() {
+            foods.sort((a, b) => {
+                let valueA, valueB;
+                
+                if (currentSort.field === 'expiryDate') {
+                    valueA = new Date(a.expiryDate);
+                    valueB = new Date(b.expiryDate);
+                } else {
+                    valueA = a[currentSort.field]?.toLowerCase() || '';
+                    valueB = b[currentSort.field]?.toLowerCase() || '';
+                }
+                
+                if (valueA < valueB) {
+                    return currentSort.direction === 'asc' ? -1 : 1;
+                }
+                if (valueA > valueB) {
+                    return currentSort.direction === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+
+        function filterFoods() {
+            const searchText = $('#searchFood').val().toLowerCase();
+            const activeCategory = $('.category-filter.active').data('category');
+            
+            let filteredFoods = foods;
+            
+            // Filtro per testo
+            if (searchText) {
+                filteredFoods = filteredFoods.filter(food => 
+                    food.name.toLowerCase().includes(searchText) || 
+                    (food.notes && food.notes.toLowerCase().includes(searchText))
+                );
+            }
+            
+            // Filtro per categoria
+            if (activeCategory !== 'all') {
+                filteredFoods = filteredFoods.filter(food => food.category === activeCategory);
+            }
+            
+            renderFoods(filteredFoods);
+        }
+
+        function renderFoods(foodsToRender = foods) {
+            const tableBody = $('#foodTableBody');
+            tableBody.empty();
+            
+            if (foodsToRender.length === 0) {
+                tableBody.append(`
+                    <tr>
+                        <td colspan="5" class="text-center">Nessun alimento trovato</td>
+                    </tr>
+                `);
+                return;
+            }
+            
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            foodsToRender.forEach(food => {
+                const expiryDate = new Date(food.expiryDate);
+                const diffTime = expiryDate - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                let statusClass = '';
+                let statusText = '';
+                let rowClass = '';
+                
+                if (diffDays < 0) {
+                    statusClass = 'badge-expired';
+                    statusText = 'Scaduto';
+                    rowClass = 'expired';
+                } else if (diffDays <= userSettings.notificationDays) {
+                    statusClass = 'badge-expiring';
+                    statusText = `In scadenza (${diffDays} giorno${diffDays !== 1 ? 'i' : ''})`;
+                    rowClass = 'expiring-soon';
+                } else {
+                    statusClass = 'bg-secondary';
+                    statusText = `Scade tra ${diffDays} giorni`;
+                }
+                
+                const formattedDate = formatDate(expiryDate);
+                
+                tableBody.append(`
+                    <tr class="${rowClass}">
+                        <td>${food.name}</td>
+                        <td>${food.category}</td>
+                        <td>${formattedDate}</td>
+                        <td><span class="badge ${statusClass}">${statusText}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary edit-food" data-id="${food.id}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger delete-food" data-id="${food.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `);
+            });
+        }
+
+        function formatDate(date) {
+            return date.toLocaleDateString('it-IT', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+        }
+
+        // Funzione per controllare le scadenze e inviare notifiche
+        function checkExpirations() {
+            if (!currentUser) return;
+            
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const notificationDate = new Date();
+            notificationDate.setDate(today.getDate() + userSettings.notificationDays);
+            notificationDate.setHours(0, 0, 0, 0);
+            
+            // Utilizza una query più semplice che non richiede indice composto
+            db.collection('foods')
+                .where('userId', '==', currentUser.uid)
+                .get()
+                .then(querySnapshot => {
+                    const expiringFoods = [];
+                    const todayStr = today.toISOString().split('T')[0];
+                    const notificationDateStr = notificationDate.toISOString().split('T')[0];
+                    
+                    querySnapshot.forEach(doc => {
+                        const food = doc.data();
+                        // Filtra localmente i risultati
+                        if (food.expiryDate >= todayStr && food.expiryDate <= notificationDateStr) {
+                            expiringFoods.push(food);
+                        }
+                    });
+                    
+                    if (expiringFoods.length > 0 && userSettings.emailNotifications) {
+                        console.log('Alimenti in scadenza:', expiringFoods);
+                        // Simula l'invio di una notifica
+                        if (Notification.permission === 'granted') {
+                            new Notification('FoodExpiry - Avviso di scadenza', {
+                                body: `Hai ${expiringFoods.length} alimento(i) in scadenza nei prossimi ${userSettings.notificationDays} giorni!`
+                            });
+                        } else if (Notification.permission !== 'denied') {
+                            Notification.requestPermission().then(permission => {
+                                if (permission === 'granted') {
+                                    new Notification('FoodExpiry - Avviso di scadenza', {
+                                        body: `Hai ${expiringFoods.length} alimento(i) in scadenza nei prossimi ${userSettings.notificationDays} giorni!`
+                                    });
+                                }
+                            });
+                        }
+                        
+                        alert(`Hai ${expiringFoods.length} alimento(i) in scadenza nei prossimi ${userSettings.notificationDays} giorni!`);
+                    }
+                });
+        }
+
+        // Controlla le scadenze ogni giorno
+        setInterval(checkExpirations, 24 * 60 * 60 * 1000);
+        
+        // Controlla le scadenze anche all'avvio
+        setTimeout(checkExpirations, 3000);
+    </script>
+</body>
+</html>
